@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Админ-панель · AMIRI VAPE</title>
+  <link rel="icon" href="/assets/amiri-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/style.css">
+  <script type="module" src="/admin.js"></script>
+</head>
+<body>
+  <header class="admin-bar">
+    <div class="admin-bar-inner">
+      <a class="admin-brand" href="/"><img src="/assets/amiri-logo.svg" width="58" height="58" alt="AMIRI VAPE"></a>
+      <span id="staff-name"></span>
+      <a class="button ghost" href="/">В магазин</a>
+      <button class="button ghost" id="admin-logout" type="button">Выйти</button>
+    </div>
+  </header>
+  <main class="admin-main">
+    <h1>Админ-панель</h1>
+    <nav class="admin-tabs" aria-label="Разделы админ-панели">
+      <button class="button ghost" type="button" data-admin-tab="orders">Заказы</button>
+      <button class="button ghost" type="button" data-admin-tab="products">Позиции</button>
+      <button class="button ghost" type="button" data-admin-tab="categories">Категории</button>
+      <button class="button ghost" type="button" data-admin-tab="users" hidden>Пользователи</button>
+    </nav>
+    <section class="admin-card" id="admin-orders" hidden>
+      <header class="admin-toolbar">
+        <h2>Заказы</h2>
+        <select id="order-filter" aria-label="Фильтр по статусу"></select>
+      </header>
+      <p class="admin-message" id="order-status" role="status"></p>
+      <div id="admin-order-list" class="admin-orders"></div>
+      <footer class="admin-pagination" id="order-pagination" hidden>
+        <button class="button ghost" id="order-prev" type="button">Назад</button>
+        <span id="order-page"></span>
+        <button class="button ghost" id="order-next" type="button">Далее</button>
+      </footer>
+    </section>
+    <section class="admin-card" id="admin-products" hidden>
+      <header class="admin-toolbar">
+        <h2>Позиции каталога</h2>
+        <input id="product-search" type="search" placeholder="Название позиции" aria-label="Поиск по позициям">
+        <button class="button" type="button" id="new-product">Добавить позицию</button>
+      </header>
+      <p class="admin-message" id="product-status" role="status"></p>
+      <div class="admin-table">
+        <table>
+          <thead><tr><th>Позиция</th><th>Категория</th><th>Цена</th><th>Остаток</th><th>Витрина</th><th><span class="visually-hidden">Действия</span></th></tr></thead>
+          <tbody id="admin-product-list"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="admin-card" id="admin-categories" hidden>
+      <header class="admin-toolbar">
+        <h2>Категории каталога</h2>
+        <button class="button" type="button" id="new-category">Добавить категорию</button>
+      </header>
+      <p class="admin-message" id="category-status" role="status"></p>
+      <div class="admin-table">
+        <table>
+          <thead><tr><th>Категория</th><th>Баннер</th><th><span class="visually-hidden">Действия</span></th></tr></thead>
+          <tbody id="admin-category-list"></tbody>
+        </table>
+      </div>
+    </section>
+    <div id="admin-users" hidden>
+      <section class="admin-stats" aria-label="Статистика пользователей">
+        <div><span>Зарегистрировано</span><strong id="registered">—</strong></div>
+        <div><span>Доступ открыт</span><strong id="active-users">—</strong></div>
+        <div><span>Заблокировано</span><strong id="blocked">—</strong></div>
+      </section>
+      <section class="admin-card" aria-labelledby="users-title">
+        <header class="admin-toolbar">
+          <h2 id="users-title">Пользователи</h2>
+          <input id="user-search" type="search" aria-label="Поиск пользователей" placeholder="Имя, @username или Telegram ID" maxlength="128">
+        </header>
+        <p class="admin-message" id="admin-status" role="status">Загружаем пользователей…</p>
+        <div class="admin-table" id="users-table" hidden>
+          <table>
+            <thead><tr><th>Пользователь</th><th>Telegram ID</th><th>Регистрация</th><th>Последний вход</th><th>Доступ</th><th><span class="visually-hidden">Действия</span></th></tr></thead>
+            <tbody id="users"></tbody>
+          </table>
+        </div>
+        <footer class="admin-pagination" id="pagination" hidden>
+          <button class="button ghost" id="prev" type="button">Назад</button>
+          <span id="page"></span>
+          <button class="button ghost" id="next" type="button">Далее</button>
+        </footer>
+      </section>
+    </div>
+  </main>
+  <dialog id="product-dialog" aria-labelledby="product-dialog-title">
+    <form id="product-form">
+      <h2 id="product-dialog-title">Позиция каталога</h2>
+      <label>Название<input name="title" required maxlength="120"></label>
+      <label>Категория<select name="category" required></select></label>
+      <label>Бренд<input name="brand" maxlength="60"></label>
+      <label>Линейка<input name="line" maxlength="120"><small>Укажите одинаковую линейку у всех её вкусов или вариантов.</small></label>
+      <label>Цена, ₽<input name="price" type="number" min="1" max="1000000" step="1"><small>Без цены позицию можно показать в каталоге. Добавление в корзину станет доступно после указания цены.</small></label>
+      <label>Остаток, шт<input name="stock" type="number" min="0" max="1000000" step="1" required></label>
+      <label>Фото <input name="image" placeholder="/img/product.png" maxlength="105" spellcheck="false" autocomplete="off">
+        <small>PNG с прозрачным фоном в папке img.</small>
+      </label>
+      <label>Бейдж <select name="badge">
+        <option value="">Без бейджа</option><option value="new">Новинка</option><option value="restock">Пополнение</option>
+      </select></label>
+      <label class="inline-check"><input name="visible" type="checkbox">Показывать в каталоге</label>
+      <p id="product-error" role="alert"></p>
+      <div class="dialog-action"><button class="button ghost" data-close-dialog type="button">Отмена</button><button class="button" type="submit">Сохранить</button></div>
+    </form>
+  </dialog>
+  <dialog id="category-dialog" aria-labelledby="category-dialog-title">
+    <form id="category-form">
+      <h2 id="category-dialog-title">Категория каталога</h2>
+      <label>Название<input name="title" required maxlength="64"></label>
+      <label>Баннер <input name="image" placeholder="/img/category.png" maxlength="105" spellcheck="false" autocomplete="off">
+        <small>PNG в папке img. Пропорции баннера 1200 × 640.</small>
+      </label>
+      <p id="category-error" role="alert"></p>
+      <div class="dialog-action"><button class="button ghost" data-close-dialog type="button">Отмена</button><button class="button" type="submit">Сохранить</button></div>
+    </form>
+  </dialog>
+  <dialog id="delete-catalog-dialog" aria-labelledby="delete-catalog-title" aria-describedby="delete-catalog-description">
+    <form id="delete-catalog-form">
+      <h2 id="delete-catalog-title"></h2>
+      <p id="delete-catalog-description"></p>
+      <p id="delete-catalog-error" role="alert"></p>
+      <div class="dialog-action">
+        <button class="button ghost" data-close-dialog type="button" autofocus>Отмена</button>
+        <button class="button danger" type="submit">Удалить</button>
+      </div>
+    </form>
+  </dialog>
+  <dialog id="order-dialog" aria-labelledby="order-dialog-title">
+    <form id="order-form">
+      <h2 id="order-dialog-title"></h2>
+      <label id="tracking-field" hidden>Трек-номер<input name="tracking" maxlength="100"></label>
+      <p id="order-dialog-error" role="alert"></p>
+      <div class="dialog-action"><button class="button ghost" data-close-dialog type="button">Назад</button><button class="button" type="submit">Подтвердить</button></div>
+    </form>
+  </dialog>
+  <dialog id="order-items-dialog" aria-labelledby="order-items-title">
+    <form id="order-items-form">
+      <h2 id="order-items-title"></h2>
+      <div id="order-item-fields"></div>
+      <p id="order-items-error" role="alert"></p>
+      <div class="dialog-action"><button class="button ghost" data-close-dialog type="button">Назад</button><button class="button" type="submit">Сохранить</button></div>
+    </form>
+  </dialog>
+  <dialog id="access-dialog" aria-labelledby="access-title">
+    <form method="dialog">
+      <h2 id="access-title">Заблокировать доступ?</h2>
+      <p id="access-description"></p>
+      <div class="dialog-action"><button class="button ghost" value="cancel" autofocus>Отмена</button><button class="button" value="confirm">Заблокировать</button></div>
+    </form>
+  </dialog>
+</body>
+</html>

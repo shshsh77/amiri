@@ -1,0 +1,177 @@
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+@import "tw-animate-css";
+@source "../components";
+
+html[data-glass-navigation="ready"] {
+  scrollbar-gutter: stable;
+}
+
+@media (max-width: 899px) {
+  html[data-glass-navigation="ready"] .tabs {
+    display: none;
+  }
+
+  html[data-glass-navigation="ready"] #mobile-navigation {
+    display: block;
+  }
+
+  #mobile-navigation {
+    position: fixed;
+    z-index: 5;
+    right: max(12px, calc(50% - 272px), env(safe-area-inset-right, 0px));
+    bottom: calc(10px + var(--safe));
+    left: max(12px, calc(50% - 272px), env(safe-area-inset-left, 0px));
+  }
+}
+
+[data-slot="glass-tab-bar"] {
+  --glass-tint: #38231344;
+  --glass-tint-frosted: #1b1816e8;
+  --glass-rim: inset 0 0 0 1px #ffb27620;
+  --glass-shadow: 0 10px 36px -8px #000b;
+  --glass-foreground: var(--secondary);
+  --glass-highlight: #ff944021;
+  --glass-active: var(--accent-light);
+  --glass-glint: #ff944035;
+  --glass-ring: var(--accent-light);
+}
+
+.liquid-glass {
+  background-color: var(--glass-surface, var(--glass-tint-frosted, var(--card)));
+  box-shadow: var(--glass-rim);
+}
+
+.liquid-glass-shadow {
+  box-shadow: var(--glass-rim), var(--glass-shadow);
+}
+
+[data-slot="glass-tab-bar"] {
+  border: 1px solid var(--line);
+  background-image: linear-gradient(145deg, var(--glass-tint), transparent 60%);
+  -webkit-backdrop-filter: blur(var(--glass-bezel)) saturate(155%);
+  backdrop-filter: blur(var(--glass-bezel)) saturate(155%);
+}
+
+.glass-selection {
+  background-image: linear-gradient(170deg, var(--glass-glint), transparent 69%);
+  box-shadow: var(--glass-rim), 0 4px 12px -6px #0008;
+  -webkit-backdrop-filter: blur(calc(var(--glass-bezel) / 3)) saturate(155%);
+  backdrop-filter: blur(calc(var(--glass-bezel) / 3)) saturate(155%);
+}
+
+[data-slot="glass-tab-bar-item"] {
+  color: var(--glass-foreground);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+[data-slot="glass-tab-bar-item"][aria-current="page"] {
+  color: var(--glass-active);
+}
+
+[data-slot="glass-tab-bar-item"]:focus-visible {
+  outline: 2px solid var(--glass-ring);
+  outline-offset: -2px;
+}
+
+.glass-cart-badge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 16px;
+  padding: 2px 4px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: 800 9px/1.15 Inter, sans-serif;
+  text-align: center;
+}
+
+.mobile-tab-icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+@media (min-width: 900px) {
+  html[data-glass-navigation="ready"] .nav-inner > a[data-tab] {
+    display: none;
+  }
+
+  html[data-glass-navigation="ready"] #desktop-navigation {
+    display: block;
+  }
+
+  html[data-glass-navigation="ready"] #user-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  html[data-glass-navigation="ready"] #account {
+    flex: none;
+  }
+}
+
+.desktop-glass-nav {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.desktop-glass-link {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 clamp(9px, 1.2vw, 16px);
+  border-radius: 13px;
+  color: var(--secondary);
+  font-size: 14px;
+  font-weight: 800;
+  white-space: nowrap;
+  transition: color .2s ease, background-color .2s ease;
+}
+
+.desktop-glass-link svg {width:20px;height:20px}
+
+.desktop-glass-link[aria-current="page"], .desktop-glass-link:hover {
+  color: var(--accent-light);
+}
+
+.desktop-glass-link:hover:not([aria-current="page"]) {
+  background: var(--surface);
+}
+
+.desktop-glass-link:focus-visible {
+  outline: 2px solid var(--accent-light);
+  outline-offset: -2px;
+}
+
+.desktop-glass-indicator {
+  position: absolute;
+  left: 0;
+  border-radius: 13px;
+  background: var(--accent-soft);
+  pointer-events: none;
+  transition: transform .46s cubic-bezier(.3, 1.27, .52, 1), width .46s cubic-bezier(.3, 1.27, .52, 1);
+}
+
+.desktop-cart-count {
+  min-width: 18px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent-light);
+  font-size: 11px;
+  font-weight: 800;
+  text-align: center;
+}

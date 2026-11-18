@@ -1,0 +1,32 @@
+{
+  "name": "amiri-vape",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build:navigation": "tsc --noEmit && esbuild components/store-navigation.tsx --bundle --minify --target=es2020 --outfile=dist/navigation.js && tailwindcss --input styles/index.css --output dist/navigation.css --minify",
+    "prestart": "npm run build:navigation",
+    "start": "node --env-file-if-exists=.env server.js",
+    "test": "node --test",
+    "telegram:menu": "node --env-file-if-exists=.env telegram-menu-command.js"
+  },
+  "dependencies": {
+    "@radix-ui/react-slot": "^1.5.0",
+    "clsx": "^2.1.1",
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/cli": "^4.3.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "tailwindcss": "^4.3.5",
+    "tw-animate-css": "^1.4.0",
+    "typescript": "^7.0.2"
+  }
+}

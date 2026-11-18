@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="63 53 527 536" role="img" aria-labelledby="amiri-title">
+  <title id="amiri-title">AMIRI VAPE</title>
+  <defs>
+    <path id="amiri-ring" fill-rule="evenodd" d="
+      M 319 62
+      C 451 59 568 174 576 314
+      C 586 451 480 572 347 579
+      C 202 587 72 453 71 313
+      C 68 174 177 66 319 62 Z
+      M 308 115
+      C 415 111 513 212 519 320
+      C 527 429 446 526 339 528
+      C 222 535 126 445 121 321
+      C 113 208 197 120 308 115 Z"/>
+    <path id="amiri-a" fill-rule="evenodd" d="
+      M 173 437
+      C 186 401 199 352 211 314
+      C 222 276 235 243 245 221
+      C 255 199 282 189 299 194
+      C 314 199 319 223 325 253
+      C 337 309 347 367 346 421
+      C 345 434 343 445 337 449
+      C 328 452 310 432 301 414
+      C 292 397 294 376 294 357
+      C 294 344 290 333 282 327
+      C 272 318 260 325 255 335
+      C 246 352 256 367 262 382
+      C 269 399 276 415 274 435
+      C 273 451 267 462 256 460
+      C 243 460 233 447 222 441
+      C 207 432 193 432 173 437 Z
+      M 270 289
+      C 276 277 282 261 287 252
+      C 293 263 297 280 298 293
+      C 300 308 285 301 270 289 Z"/>
+    <path id="amiri-v" d="
+      M 355 196
+      C 356 183 370 174 385 170
+      C 391 169 393 173 394 182
+      C 398 210 402 253 406 288
+      C 417 283 433 279 437 268
+      C 442 253 444 231 448 216
+      C 451 205 459 199 465 201
+      C 470 201 470 214 471 228
+      C 473 250 478 275 478 294
+      C 478 314 468 332 456 350
+      C 438 375 413 397 389 415
+      C 373 426 362 423 359 407
+      C 355 389 357 361 357 332
+      C 356 282 355 220 355 196 Z"/>
+    <linearGradient id="amiri-orange" gradientUnits="userSpaceOnUse" x1="310" y1="60" x2="343" y2="579">
+      <stop stop-color="#df5000"/>
+      <stop offset=".43" stop-color="#e35500"/>
+      <stop offset=".74" stop-color="#e86100"/>
+      <stop offset="1" stop-color="#f78105"/>
+    </linearGradient>
+    <linearGradient id="amiri-rim" x1="0" y1=".7" x2="1" y2=".25">
+      <stop stop-color="#ffd59b"/>
+      <stop offset=".34" stop-color="#fffdf8"/>
+      <stop offset=".73" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#fff6e5"/>
+    </linearGradient>
+    <linearGradient id="amiri-edge" gradientUnits="userSpaceOnUse" x1="185" y1="111" x2="374" y2="566">
+      <stop stop-color="#ffab49" stop-opacity=".8"/>
+      <stop offset=".25" stop-color="#ae3a00" stop-opacity=".72"/>
+      <stop offset=".55" stop-color="#ffc478" stop-opacity=".38"/>
+      <stop offset=".83" stop-color="#b75000"/>
+      <stop offset="1" stop-color="#ffcf81"/>
+    </linearGradient>
+    <radialGradient id="amiri-glow" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1">
+      <stop stop-color="#fff5d4"/>
+      <stop offset=".35" stop-color="#ffdda4" stop-opacity=".94"/>
+      <stop offset=".68" stop-color="#ffae31" stop-opacity=".62"/>
+      <stop offset="1" stop-color="#ff8a02" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="amiri-warmth" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1">
+      <stop stop-color="#ff9705" stop-opacity=".88"/>
+      <stop offset=".52" stop-color="#ff7c01" stop-opacity=".58"/>
+      <stop offset="1" stop-color="#ff7400" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="amiri-ring-clip">
+      <use href="#amiri-ring" clip-rule="evenodd"/>
+    </clipPath>
+    <clipPath id="amiri-letters-clip">
+      <use href="#amiri-a" clip-rule="evenodd"/>
+      <use href="#amiri-v"/>
+    </clipPath>
+  </defs>
+
+  <path fill="url(#amiri-rim)" fill-rule="evenodd" d="
+    M 320 60
+    C 457 59 580 180 583 328
+    C 587 472 478 580 337 582
+    C 194 582 70 452 70 310
+    C 68 172 179 60 320 60 Z
+    M 311 120
+    C 417 117 513 216 519 324
+    C 525 429 447 515 340 518
+    C 229 526 139 440 135 318
+    C 128 211 204 124 311 120 Z"/>
+  <use href="#amiri-ring" fill="url(#amiri-orange)"/>
+  <g clip-path="url(#amiri-ring-clip)">
+    <circle r="1" fill="url(#amiri-glow)" transform="translate(256 542) rotate(28) scale(141 53)"/>
+    <circle r="1" fill="url(#amiri-warmth)" transform="translate(321 532) rotate(29) scale(64 24)"/>
+    <circle r="1" fill="url(#amiri-glow)" opacity=".68" transform="translate(373 568) rotate(20) scale(88 45)"/>
+    <circle r="1" fill="url(#amiri-warmth)" transform="translate(487 481) rotate(-55) scale(81 44)"/>
+    <circle r="1" fill="url(#amiri-glow)" opacity=".49" transform="translate(479 522) rotate(-41) scale(54 28)"/>
+    <circle r="1" fill="url(#amiri-warmth)" transform="translate(152 450) rotate(39) scale(69 36)"/>
+    <use href="#amiri-ring" fill="none" stroke="url(#amiri-edge)" stroke-width="5"/>
+  </g>
+  <path d="M 85 240 C 112 153 202 72 309 63 M 128 258 C 154 170 221 122 303 116 C 391 111 463 175 493 233"
+        fill="none" stroke="#fff2d9" stroke-opacity=".55" stroke-width="1.5" stroke-linecap="round"/>
+
+  <path fill="#fffdf7" fill-rule="evenodd" d="
+    M 173 437
+    C 192 382 213 295 244 223
+    C 253 203 278 192 295 189
+    C 317 185 324 195 331 225
+    C 344 284 353 354 354 410
+    C 354 429 346 445 338 449
+    C 326 451 308 432 300 414
+    C 291 395 295 375 294 357
+    C 294 344 290 333 282 327
+    C 275 321 267 327 266 339
+    C 264 355 273 368 279 384
+    C 287 402 289 422 284 437
+    C 279 451 269 461 257 460
+    C 242 460 233 447 220 441
+    C 204 433 193 432 173 437 Z
+    M 280 281
+    C 283 270 286 259 289 253
+    C 294 264 297 281 298 292
+    C 299 300 296 301 291 298
+    C 286 295 283 289 280 281 Z"/>
+  <path fill="#fffdf7" d="
+    M 355 196
+    C 356 182 372 172 387 168
+    C 397 165 400 172 402 186
+    C 405 217 411 253 417 283
+    C 429 279 437 278 440 266
+    C 443 251 445 230 450 215
+    C 454 203 463 198 469 200
+    C 475 201 475 215 477 231
+    C 480 256 484 275 485 295
+    C 485 316 472 332 458 351
+    C 438 377 412 398 389 415
+    C 371 427 361 422 358 406
+    C 354 370 357 341 357 323
+    C 356 286 355 228 355 196 Z"/>
+  <use href="#amiri-a" fill="url(#amiri-orange)"/>
+  <use href="#amiri-v" fill="url(#amiri-orange)"/>
+  <g clip-path="url(#amiri-letters-clip)">
+    <circle r="1" fill="url(#amiri-warmth)" transform="translate(220 415) rotate(-28) scale(61 40)"/>
+    <circle r="1" fill="url(#amiri-warmth)" transform="translate(388 394) rotate(-22) scale(61 47)"/>
+    <circle r="1" fill="url(#amiri-warmth)" opacity=".63" transform="translate(251 278) rotate(16) scale(37 26)"/>
+    <circle r="1" fill="url(#amiri-warmth)" opacity=".28" transform="translate(335 398) rotate(-28) scale(34 52)"/>
+  </g>
+</svg>

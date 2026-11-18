@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#101010">
+  <title>AMIRI VAPE</title>
+  <link rel="icon" href="/assets/amiri-logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="dist/navigation.css">
+  <script src="catalog-data.cjs" defer></script>
+  <script src="app.js" defer></script>
+  <script src="dist/navigation.js" defer></script>
+</head>
+<body>
+  <nav class="tabs" aria-label="Разделы">
+    <div class="nav-inner">
+      <a class="brand" href="#home" aria-label="AMIRI VAPE">
+        <img src="/assets/amiri-logo.svg" width="42" height="42" alt="">
+        <span>AMIRI <b>VAPE</b></span>
+      </a>
+      <a href="#home" data-tab="home"><i data-icon="home"></i>Главная</a>
+      <a href="#shop" data-tab="shop"><i data-icon="shop"></i>Каталог</a>
+      <a href="#cart" data-tab="cart"><i data-icon="cart"></i>Корзина <b id="cart-count" hidden></b></a>
+      <a href="#orders" data-tab="orders"><i data-icon="orders"></i>Заказы</a>
+      <a href="#profile" data-tab="profile"><i data-icon="profile"></i>Профиль</a>
+      <a href="/admin" id="admin-link" data-tab="admin" hidden><i data-icon="admin"></i>Админ</a>
+      <div id="desktop-navigation"></div>
+      <div class="user"><span id="user-name"></span><button id="account" type="button">Войти</button></div>
+    </div>
+  </nav>
+  <div id="mobile-navigation"></div>
+  <main id="view"></main>
+  <a id="cartbar" href="#cart" hidden></a>
+  <dialog id="panel" aria-labelledby="panel-title"></dialog>
+</body>
+</html>
