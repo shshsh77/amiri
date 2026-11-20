@@ -172,6 +172,9 @@ export function openAuthStore(path, now = Date.now) {
     isEditor(id) {
       return Boolean(db.prepare("SELECT 1 FROM editors WHERE telegram_id = ?").get(id));
     },
+    isBlocked(id) {
+      return Boolean(getUser.get(id)?.blocked);
+    },
     setEditor(id, enabled) {
       if (!getUser.get(id)) return false;
       const sql = enabled ? "INSERT OR IGNORE INTO editors VALUES (?)" : "DELETE FROM editors WHERE telegram_id = ?";

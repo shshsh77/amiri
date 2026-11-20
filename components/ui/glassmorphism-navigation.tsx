@@ -36,6 +36,7 @@ export function GlassmorphismNavigation({
             key={route}
             className="desktop-glass-link"
             href={href}
+            data-cart-target={route === "cart" ? "" : undefined}
             aria-current={route === active ? "page" : undefined}
             aria-label={showCount ? `${title}, товаров: ${cartCount}` : undefined}
           >

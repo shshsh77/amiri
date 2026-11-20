@@ -7,6 +7,7 @@ import { openAuthStore } from "./auth-store.js";
 import { createRegistrationHandler, createTelegramClient, pollTelegram } from "./bot.js";
 import { ShopError } from "./shop-store.js";
 import { miniMenu, verifyMiniLaunch } from "./telegram-mini.js";
+import { createTelegramOrders } from "./telegram-orders.js";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const types = {
@@ -29,7 +30,7 @@ const staticImagePath = /^\/img\/[A-Za-z0-9_-]{1,96}\.(?:webp|png|jpe?g)$/;
 const catalogImagePath = /^\/img\/[A-Za-z0-9_-]{1,96}\.png$/;
 const productBadges = new Set(["", "new", "restock"]);
 const orderKey = /^[0-9a-f-]{36}$/;
-const orderStates = new Set(["new", "accepted", "packing", "shipped", "completed", "cancelled"]);
+const orderStates = new Set(["forming", "new", "accepted", "packing", "shipped", "completed", "cancelled"]);
 const intIn = (value, min, max) => Number.isSafeInteger(value) && value >= min && value <= max;
 const pageNumber = url => Math.max(1, Math.floor(Number(url.searchParams.get("page"))) || 1);
 
@@ -79,6 +80,16 @@ function validAdjustment(body) {
     ids.add(item.id);
   }
   return true;
+}
+
+function deliveryFields(body) {
+  if (typeof body?.pointNumber !== "string" || !/^\d{6}$/.test(body.pointNumber) ||
+      typeof body.address !== "string" || typeof body.fullName !== "string" || body.ageConfirmed !== true) return null;
+  const address = body.address.trim();
+  const fullName = body.fullName.trim().replace(/\s+/g, " ");
+  if (address.length < 5 || address.length > 250 || fullName.length > 120 ||
+      !/^\p{L}[\p{L}\p{M}'’\-]*(?: \p{L}[\p{L}\p{M}'’\-]*)+$/u.test(fullName)) return null;
+  return { pointNumber: body.pointNumber, address, fullName, ageConfirmed: true };
 }
 
 function cookie(request, name, pattern) {
@@ -270,18 +281,35 @@ export function createWebServer({
       return sendJson(response, 200, { ok: true });
     }
 
-    if (path === "/api/storefront" || path === "/api/orders") {
+    if (["/api/storefront", "/api/orders", "/api/orders/action"].includes(path)) {
       if (!user) return sendJson(response, 401, { error: "Войдите через Telegram." });
       if (method === "GET" && path === "/api/storefront") {
         return sendJson(response, 200, {
           products: store.shop.products(), categories: store.shop.categories(),
-          orders: store.shop.customerOrders(user.telegram_id), top: store.shop.topProducts(),
+          orders: store.shop.customerOrders(user.telegram_id), cartReturns: store.shop.cartReturns(user.telegram_id),
+          top: store.shop.topProducts(), serverTime: Date.now(),
         });
       }
-      if (method === "POST" && path === "/api/orders") {
+      if (method === "POST") {
         const body = await readJson(request);
-        if (!validOrder(body)) return sendJson(response, 400, { error: "Проверьте позиции в корзине." });
-        return sendJson(response, 201, { order: store.shop.submit(user.telegram_id, body.key, body.items) });
+        if (path === "/api/orders") {
+          if (!validOrder(body)) return sendJson(response, 400, { error: "Проверьте позиции в корзине." });
+          const delivery = deliveryFields(body.delivery);
+          if (!delivery) return sendJson(response, 400, { error: "Проверьте номер и адрес пункта СДЭК, ФИО и подтверждение возраста." });
+          return sendJson(response, 201, { order: store.shop.submit(user.telegram_id, body.key, body.items, delivery) });
+        }
+        if (path === "/api/orders/action") {
+          if (!intIn(body?.id, 1, Number.MAX_SAFE_INTEGER) || !["edit", "cancel", "confirm"].includes(body.action)) {
+            return sendJson(response, 400, { error: "Проверьте действие с заказом." });
+          }
+          const delivery = body.action === "edit" ? deliveryFields(body.delivery) : null;
+          if (body.action === "edit" && (!delivery || !validAdjustment(body))) {
+            return sendJson(response, 400, { error: "Проверьте количество позиций и данные доставки." });
+          }
+          return sendJson(response, 200, {
+            order: store.shop.changeCustomerOrder(user.telegram_id, body.id, body.action, body.revision, body.items, delivery),
+          });
+        }
       }
     }
 
@@ -359,10 +387,19 @@ export function createWebServer({
       if (method === "POST" && path === "/api/admin/orders/status") {
         const body = await readJson(request);
         if (!intIn(body?.id, 1, Number.MAX_SAFE_INTEGER) || !orderStates.has(body.expected) || !orderStates.has(body.state) ||
+            (body.revision !== undefined && !intIn(body.revision, 1, Number.MAX_SAFE_INTEGER)) ||
             (body.tracking !== undefined && (typeof body.tracking !== "string" || body.tracking.trim().length > 100))) {
           return sendJson(response, 400, { error: "Проверьте статус заказа и трек-номер." });
         }
-        return sendJson(response, 200, { order: store.shop.updateOrder(body.id, body.expected, body.state, body.tracking?.trim() || "") });
+        const order = store.shop.updateOrder(body.id, body.expected, body.state, body.tracking?.trim() || "", body.revision);
+        return sendJson(response, 200, { order });
+      }
+      if (method === "POST" && path === "/api/admin/orders/status/undo") {
+        const body = await readJson(request);
+        if (!intIn(body?.id, 1, Number.MAX_SAFE_INTEGER) || !intIn(body.revision, 1, Number.MAX_SAFE_INTEGER)) {
+          return sendJson(response, 400, { error: "Проверьте заказ для отката статуса." });
+        }
+        return sendJson(response, 200, { order: store.shop.undoOrderStatus(body.id, body.revision) });
       }
       if (method === "POST" && path === "/api/admin/orders/items") {
         const body = await readJson(request);
@@ -398,6 +435,11 @@ async function main() {
   if ([...adminIds].some(id => !telegramIdPattern.test(id))) throw new Error("В ADMIN_TELEGRAM_IDS ожидаются числовые Telegram ID.");
   const mode = process.env.TELEGRAM_MODE || "off";
   if (!["off", "poll", "embedded"].includes(mode)) throw new Error("TELEGRAM_MODE должен быть off, poll или embedded.");
+  const configuredGroup = (process.env.TELEGRAM_ORDERS_GROUP_ID || "").trim();
+  const groupId = configuredGroup ? Number(configuredGroup) : undefined;
+  if (configuredGroup && (!/^-[1-9]\d*$/.test(configuredGroup) || !Number.isSafeInteger(groupId))) {
+    throw new Error("В TELEGRAM_ORDERS_GROUP_ID ожидается отрицательный ID группы.");
+  }
   const username = (process.env.TELEGRAM_BOT_USERNAME || "").trim().replace(/^@/, "");
   if (mode !== "off" && !/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(username)) throw new Error("Укажите имя в TELEGRAM_BOT_USERNAME.");
   const token = process.env.TELEGRAM_BOT_TOKEN || "";
@@ -426,15 +468,18 @@ async function main() {
     guestPreview: mode === "off" && ["127.0.0.1", "::1"].includes(host),
   });
   const stop = new AbortController();
-  const handler = callTelegram && createRegistrationHandler({
-    store, callTelegram, publicOrigin: origin.origin, username, miniAppUrl: miniUrl && miniMenu(miniUrl).web_app.url,
-  });
+  const miniAppUrl = miniUrl && miniMenu(miniUrl).web_app.url;
+  const registration = callTelegram && createRegistrationHandler({ store, callTelegram, publicOrigin: origin.origin, username, miniAppUrl });
+  const telegramOrders = callTelegram && createTelegramOrders({ store, callTelegram, groupId, adminIds, publicOrigin: origin.origin, miniAppUrl, username });
   server.listen(port, host, () => console.log(`AMIRI VAPE · ${origin.origin} · админ-панель /admin`));
-  const polling = handler ? pollTelegram({ callTelegram, handler, signal: stop.signal }) : Promise.resolve();
+  const background = telegramOrders ? Promise.all([
+    pollTelegram({ callTelegram, handler: async update => await telegramOrders.handle(update) || registration(update), signal: stop.signal }),
+    telegramOrders.run(stop.signal),
+  ]) : Promise.resolve();
   function shutdown() {
     stop.abort();
     server.close(async () => {
-      await polling;
+      await background;
       store.close();
     });
   }

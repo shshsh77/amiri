@@ -1,5 +1,7 @@
 const fold = text => text.toLowerCase().replaceAll("ё", "е").trim();
 const catalog = {
+  minimumOrderTotal: 1500,
+  topProductLimit: 10,
   categories: ["Под-системы и расходники", "Жидкости", "Никотиновые паучи", "Одноразовые устройства"],
   lineKey({ id, category, brand, line }) {
     return line ? JSON.stringify([category, fold(brand || ""), fold(line)]) : id;

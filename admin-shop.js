@@ -1,9 +1,11 @@
 const $ = selector => document.querySelector(selector);
 const statusLabels = {
+  forming: "Заказ формируется",
   new: "Новый", accepted: "Принят", packing: "На сборке", shipped: "Отправлен",
   completed: "Завершён", cancelled: "Отменён",
 };
 const actions = {
+  forming: [],
   new: [["accepted", "Принять"], ["cancelled", "Отменить"]],
   accepted: [["packing", "Передать на сборку"], ["cancelled", "Отменить"]],
   packing: [["shipped", "Отметить отправленным"], ["cancelled", "Отменить"]],
@@ -47,6 +49,8 @@ export function bindShopAdmin(api) {
   const itemsDialog = $("#order-items-dialog");
   const itemsForm = $("#order-items-form");
   const orderList = $("#admin-order-list");
+  const recentUndo = $("#order-recent-undo");
+  const undoFeedback = $("#order-undo-feedback");
   let catalog = { products: [], categories: [] };
   let productReady = false;
   let editedProduct;
@@ -54,6 +58,9 @@ export function bindShopAdmin(api) {
   let pendingDelete;
   let orderPage = 1;
   let orderRequest = 0;
+  let orderVersion;
+  let lastStatusChange;
+  let listedOrderIds = new Set();
   let editedOrder;
   let itemOrder;
 
@@ -226,12 +233,53 @@ export function bindShopAdmin(api) {
   }
 
   function openOrder(order, state) {
-    editedOrder = { id: order.id, expected: order.state, state };
+    editedOrder = { id: order.id, expected: order.state, state, revision: order.revision };
+    showUndoFeedback("");
     $("#order-dialog-title").textContent = `${actions[order.state].find(([key]) => key === state)[1]} заказ №${order.id}?`;
     $("#tracking-field").hidden = state !== "shipped";
     $("#order-dialog-error").textContent = "";
     orderForm.reset();
     orderDialog.showModal();
+  }
+
+  function showUndoFeedback(message) {
+    undoFeedback.textContent = message;
+    undoFeedback.hidden = !message;
+  }
+
+  function undoButton(order) {
+    const control = button("Откатить статус", async () => {
+      control.disabled = true;
+      showUndoFeedback("");
+      try {
+        const { order: restored } = await api("/api/admin/orders/status/undo", { id: order.id, revision: order.revision });
+        if (lastStatusChange?.id === order.id) lastStatusChange = undefined;
+        updateRecentUndo();
+        showUndoFeedback(`Заказ №${order.id}: восстановлен статус «${statusLabels[restored.state]}».`);
+        await loadOrders();
+      } catch (error) {
+        showUndoFeedback(error.message);
+        if (error.status === 409) await loadOrders();
+      } finally {
+        control.disabled = false;
+      }
+    });
+    control.title = `Вернуть статус «${statusLabels[order.statusUndo.state]}»`;
+    return control;
+  }
+
+  function updateRecentUndo() {
+    const order = lastStatusChange;
+    if (!order?.statusUndo || listedOrderIds.has(order.id)) {
+      recentUndo.replaceChildren();
+      return;
+    }
+    const key = `${order.id}/${order.revision}`;
+    if (recentUndo.firstElementChild?.dataset.orderKey === key) return;
+    const notice = element("div", "", "order-actions");
+    notice.dataset.orderKey = key;
+    notice.append(element("p", `Заказ №${order.id} · ${statusLabels[order.state]}`, "admin-order-info"), undoButton(order));
+    recentUndo.replaceChildren(notice);
   }
 
   function orderCard(order) {
@@ -248,7 +296,13 @@ export function bindShopAdmin(api) {
       controls.append(button("Изменить количество", () => openItems(order)));
     }
     for (const [state, title] of actions[order.state]) controls.append(button(title, () => openOrder(order, state), state === "cancelled" ? "button ghost" : "button"));
+    if (order.statusUndo) controls.append(undoButton(order));
     card.append(header, info, lines);
+    if (order.delivery) {
+      const { fullName, pointNumber, address } = order.delivery;
+      info.after(element("p", `Получатель: ${fullName}`, "admin-order-info"),
+        element("p", `СДЭК №${pointNumber} · ${address}`, "admin-order-info"));
+    }
     if (order.tracking) card.append(element("p", `Трек-номер: ${order.tracking}`, "admin-order-info"));
     if (controls.childElementCount) card.append(controls);
     return card;
@@ -280,7 +334,13 @@ export function bindShopAdmin(api) {
       const result = await api("/api/admin/orders?" + query);
       if (request !== orderRequest) return;
       orderPage = result.page;
-      orderList.replaceChildren(...result.orders.map(orderCard));
+      listedOrderIds = new Set(result.orders.map(order => order.id));
+      const version = result.orders.map(({ id, revision, statusUndo }) => `${id}/${revision}/${statusUndo?.state ?? ""}`).join(",");
+      if (version !== orderVersion) {
+        orderList.replaceChildren(...result.orders.map(orderCard));
+        orderVersion = version;
+      }
+      updateRecentUndo();
       $("#order-status").textContent = result.orders.length ? "" : "Заказов пока нет.";
       $("#order-pagination").hidden = result.pages <= 1;
       $("#order-page").textContent = `${result.page} из ${result.pages}`;
@@ -301,6 +361,10 @@ export function bindShopAdmin(api) {
     dialog.querySelector("[data-close-dialog]").addEventListener("click", () => dialog.close());
   }
   orderFilter.replaceChildren(new Option("Все статусы", ""), ...Object.entries(statusLabels).map(([key, label]) => new Option(label, key)));
+  const ordersSection = $("#admin-orders");
+  setInterval(() => {
+    if (!ordersSection.hidden && !document.hidden) void loadOrders();
+  }, 3000);
   orderFilter.addEventListener("change", () => { orderPage = 1; void loadOrders(); });
   $("#order-prev").addEventListener("click", () => { orderPage--; void loadOrders(); });
   $("#order-next").addEventListener("click", () => { orderPage++; void loadOrders(); });
@@ -309,7 +373,10 @@ export function bindShopAdmin(api) {
     const submit = orderForm.querySelector("[type=submit]");
     submit.disabled = true;
     try {
-      await api("/api/admin/orders/status", { ...editedOrder, tracking: orderForm.elements.tracking.value });
+      const { order } = await api("/api/admin/orders/status", { ...editedOrder, tracking: orderForm.elements.tracking.value });
+      lastStatusChange = order;
+      listedOrderIds.delete(order.id);
+      updateRecentUndo();
       orderDialog.close();
       await loadOrders();
     } catch (error) {

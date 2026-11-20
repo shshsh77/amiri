@@ -8,7 +8,8 @@ import { createWebServer } from "../server.js";
 import { createShopStore } from "../shop-store.js";
 
 test("editors manage products and orders, while inventory and customer boundaries remain consistent", async t => {
-  const store = openAuthStore(":memory:");
+  let timestamp = Date.now();
+  const store = openAuthStore(":memory:", () => timestamp);
   const origin = "http://localhost";
   const server = createWebServer({ store, publicOrigin: origin, adminIds: new Set(["10"]) });
   server.listen(0, "127.0.0.1");
@@ -73,7 +74,11 @@ test("editors manage products and orders, while inventory and customer boundarie
   assert.equal((await listedProduct()).line, "Линейка 1");
   const stock = async () => (await listedProduct()).stock;
 
-  const request = { key: randomUUID(), items: [{ id: product.id, price: 2600, quantity: 3 }] };
+  const delivery = { pointNumber: "012345", address: "Ижевск, ул. Пушкина, 10", fullName: "Иванов Иван Иванович", ageConfirmed: true };
+  const request = { key: randomUUID(), delivery, items: [{ id: product.id, price: 2600, quantity: 3 }] };
+  for (const [field, value] of Object.entries({ pointNumber: "12345", address: " ", fullName: " ", ageConfirmed: false })) {
+    await json("/api/orders", customer, { ...request, delivery: { ...delivery, [field]: value } }, 400);
+  }
   await json("/api/orders", customer, { ...request, items: [{ ...request.items[0], price: 2500 }] }, 409);
   assert.equal(await stock(), 10);
   const { order } = await json("/api/orders", customer, request, 201);
@@ -81,25 +86,79 @@ test("editors manage products and orders, while inventory and customer boundarie
   assert.equal((await json("/api/orders", customer, request, 201)).order.id, order.id);
   assert.equal(await stock(), 7);
   assert.equal((await json("/api/storefront", other)).orders.length, 0);
+  assert.equal(order.state, "forming");
+  assert.equal(order.editableUntil, timestamp + 180_000);
+  const adminOrder = (await json("/api/admin/orders?state=forming", editor)).orders[0];
+  assert.deepEqual(adminOrder.delivery, delivery);
+  assert.deepEqual((await json("/api/storefront", customer)).orders[0].delivery, delivery);
+  await json("/api/admin/orders/status", editor, { id: order.id, expected: "forming", state: "accepted" }, 409);
+  await json("/api/orders/action", other, { id: order.id, action: "cancel" }, 404);
+  const edited = (await json("/api/orders/action", customer, {
+    id: order.id, revision: order.revision, action: "edit", delivery: { ...delivery, pointNumber: "012346" },
+    items: [{ id: product.id, quantity: 4 }],
+  })).order;
+  assert.equal(edited.editableUntil, order.editableUntil);
+  assert.equal(edited.delivery.pointNumber, "012346");
+  assert.equal(await stock(), 6);
+  const confirm = id => json("/api/orders/action", customer, { id, action: "confirm" });
+  const confirmed = (await confirm(order.id)).order;
+  assert.equal(confirmed.state, "new");
+  assert.equal(confirmed.editableUntil, null);
+  await json("/api/orders/action", customer, { id: order.id, action: "cancel" }, 409);
 
-  const adjustment = { id: order.id, revision: order.revision, items: [{ id: product.id, quantity: 2 }] };
+  const adjustment = { id: order.id, revision: confirmed.revision, items: [{ id: product.id, quantity: 2 }] };
   const adjusted = (await json("/api/admin/orders/items", editor, adjustment)).order;
   assert.equal(adjusted.total, 5200);
   assert.equal(await stock(), 8);
   await json("/api/admin/orders/items", editor, adjustment, 409);
   await json("/api/admin/orders/items", editor, { ...adjustment, revision: adjusted.revision, items: [{ id: product.id, quantity: 999 }] }, 409);
-  await json("/api/admin/orders/status", editor, { id: order.id, expected: "new", state: "cancelled" });
+  const cancelledByStaff = (await json("/api/admin/orders/status", editor, { id: order.id, expected: "new", state: "cancelled" })).order;
   await json("/api/admin/orders/status", editor, { id: order.id, expected: "new", state: "cancelled" }, 409);
+  assert.equal(await stock(), 10);
+  assert.deepEqual(cancelledByStaff.statusUndo, { state: "new" });
+  timestamp += 86_400_000;
+  assert.deepEqual((await json("/api/admin/orders?state=cancelled", editor)).orders[0].statusUndo, cancelledByStaff.statusUndo);
+  const undoPath = "/api/admin/orders/status/undo";
+  const undo = { id: order.id, revision: cancelledByStaff.revision };
+  await json(undoPath, customer, undo, 403);
+  await json(undoPath, editor, { ...undo, revision: undo.revision - 1 }, 409);
+  const restored = (await json(undoPath, editor, undo)).order;
+  assert.equal(restored.state, "new");
+  assert.equal(restored.statusUndo, null);
+  assert.equal(await stock(), 8);
+  await json(undoPath, editor, undo, 409);
+  await json("/api/admin/orders/status", editor, { id: order.id, expected: "new", state: "cancelled", revision: restored.revision });
+  assert.equal(await stock(), 10);
+
+  const cancelledOrder = (await json("/api/orders", customer, { ...request, key: randomUUID() }, 201)).order;
+  const cancel = { id: cancelledOrder.id, action: "cancel" };
+  assert.equal((await json("/api/orders/action", customer, cancel)).order.state, "cancelled");
+  const cancelledByCustomer = (await json("/api/admin/orders?state=cancelled", editor)).orders.find(row => row.id === cancelledOrder.id);
+  assert.equal(cancelledByCustomer.statusUndo, null);
+  await json("/api/orders/action", customer, cancel, 409);
   assert.equal(await stock(), 10);
 
   const shipment = (await json("/api/orders", customer, { ...request, key: randomUUID() }, 201)).order;
+  timestamp = shipment.editableUntil;
+  await json("/api/orders/action", customer, { id: shipment.id, action: "cancel" }, 409);
+  assert.equal((await json("/api/storefront", customer)).orders[0].state, "new");
   const move = (expected, state, tracking) =>
     json("/api/admin/orders/status", editor, { id: shipment.id, expected, state, tracking });
   await move("new", "accepted");
   await move("accepted", "packing");
   await json("/api/admin/orders/items", editor, { ...adjustment, id: shipment.id }, 409);
+  const shipped = (await move("packing", "shipped", "QA-42")).order;
+  const unpacked = (await json(undoPath, editor, { id: shipment.id, revision: shipped.revision })).order;
+  assert.equal(unpacked.state, "packing");
+  assert.equal(unpacked.tracking, "");
   await move("packing", "shipped", "QA-42");
   const delivered = await move("shipped", "completed");
+  timestamp += 86_400_000;
+  assert.deepEqual((await json("/api/admin/orders?state=completed", editor)).orders[0].statusUndo, { state: "shipped" });
+  const reopened = (await json(undoPath, editor, { id: shipment.id, revision: delivered.order.revision })).order;
+  assert.equal(reopened.state, "shipped");
+  assert.equal(reopened.tracking, "QA-42");
+  await move("shipped", "completed");
   assert.equal(delivered.order.tracking, "QA-42");
   assert.equal((await json("/api/admin/orders?state=completed", editor)).orders.length, 1);
   assert.equal((await json("/api/storefront", customer)).orders[0].tracking, "QA-42");
@@ -107,6 +166,7 @@ test("editors manage products and orders, while inventory and customer boundarie
 
   await json("/api/admin/categories/delete", editor, { id: category.id }, 409);
   const activeOrder = (await json("/api/orders", customer, { ...request, key: randomUUID() }, 201)).order;
+  await confirm(activeOrder.id);
   const { revision } = await listedProduct();
   const productDeletion = { id: product.id, revision };
   await json("/api/admin/products/delete", customer, productDeletion, 403);
@@ -133,11 +193,34 @@ test("editors manage products and orders, while inventory and customer boundarie
   assert.deepEqual((await json("/api/storefront", customer)).products, [visibleDraft]);
   assert.deepEqual((await json("/api/admin/products", editor)).products, [visibleDraft]);
   await json("/api/orders", customer, {
-    key: randomUUID(), items: [{ id: visibleDraft.id, quantity: 1, price: 1 }],
+    key: randomUUID(), delivery, items: [{ id: visibleDraft.id, quantity: 1, price: 1 }],
   }, 409);
   assert.equal((await json("/api/storefront", customer)).products[0].stock, 99);
-  const { product: priced } = await json("/api/admin/products", editor, { ...visibleDraft, price: 350, stock: 1 });
+  const { product: priced } = await json("/api/admin/products", editor, { ...visibleDraft, price: 500, stock: 10 });
   assert.deepEqual((await json("/api/storefront", customer)).products, [priced]);
+  const lowOrder = { key: randomUUID(), delivery, items: [{ id: priced.id, price: 500, quantity: 2 }] };
+  await json("/api/orders", customer, lowOrder, 400);
+  assert.equal((await json("/api/storefront", customer)).products[0].stock, 10);
+  const minimumOrder = (await json("/api/orders", customer, {
+    ...lowOrder, items: [{ ...lowOrder.items[0], quantity: 3 }],
+  }, 201)).order;
+  assert.equal(minimumOrder.total, 1500);
+  await json("/api/orders/action", customer, {
+    id: minimumOrder.id, revision: minimumOrder.revision, action: "edit", delivery, items: [{ id: priced.id, quantity: 2 }],
+  }, 400);
+  assert.equal((await json("/api/storefront", customer)).products[0].stock, 7);
+  await confirm(minimumOrder.id);
+  const released = (await json("/api/admin/orders/status", editor, {
+    id: minimumOrder.id, expected: "new", state: "cancelled",
+  })).order;
+  const competing = (await json("/api/orders", customer, {
+    ...lowOrder, key: randomUUID(), items: [{ ...lowOrder.items[0], quantity: 9 }],
+  }, 201)).order;
+  await json(undoPath, editor, { id: released.id, revision: released.revision }, 409);
+  assert.equal((await json("/api/storefront", customer)).products[0].stock, 1);
+  await json("/api/orders/action", customer, { id: competing.id, action: "cancel" });
+  await json(undoPath, editor, { id: released.id, revision: released.revision });
+  assert.equal((await json("/api/storefront", customer)).products[0].stock, 7);
 
   await json("/api/admin/users/role", owner, { id: "20", role: "customer" });
   await json("/api/admin/products", editor, null, 403);

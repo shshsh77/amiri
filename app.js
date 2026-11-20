@@ -22,7 +22,7 @@ function icon(name, size = 24) {
 }
 
 let categories = [];
-const { lineKey } = window.AMIRI_CATALOG;
+const { lineKey, minimumOrderTotal, topProductLimit } = window.AMIRI_CATALOG;
 const categoryIcons = ["pod", "drop", "tin", "device"];
 const channelUrl = "https://t.me/amirivape1";
 const managerUrl = "https://t.me/amirivapemanager1";
@@ -41,6 +41,7 @@ const questions = [
 
 const view = document.querySelector("#view");
 const panel = document.querySelector("#panel");
+const purchaseCelebration = document.querySelector("#purchase-celebration");
 const account = document.querySelector("#account");
 const userName = document.querySelector("#user-name");
 const cartCount = document.querySelector("#cart-count");
@@ -58,12 +59,14 @@ const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
 const escapeHtml = text => String(text).replace(/[&<>"]/g, char => entities[char]);
 const formatTitle = title => escapeHtml(title).replace(/\(([^()]+)\)/g, match => match.replaceAll(" ", "\u00a0"));
 const normalize = text => text.toLowerCase().replaceAll("ё", "е").trim();
-const orderLabels = { new: "Новый", accepted: "Принят", packing: "На сборке", shipped: "Отправлен", completed: "Завершён", cancelled: "Отменён" };
+const orderLabels = { forming: "Заказ формируется", new: "Новый", accepted: "Принят", packing: "На сборке", shipped: "Отправлен", completed: "Завершён", cancelled: "Отменён" };
 
 let selected = "new";
 let topProducts = [];
 let productBack = "#shop";
 let cart = {};
+let returnedOrders = new Set();
+let returnedTitles = new Map();
 let serverUser = null;
 let ordersList = [];
 let storefrontLoaded = false;
@@ -74,13 +77,19 @@ let cartNotice = "";
 let checkoutError = "";
 let storefrontError = "";
 let pendingOrder = null;
+let checkoutDelivery;
+let orderActionPending = false;
+let orderActionError = "";
+let serverClockOffset = 0;
 
 function readLocal(key) {
   try { return JSON.parse(localStorage.getItem(key)); } catch { return null; }
 }
 
 function saveCart() {
-  try { localStorage.setItem(cartKey, JSON.stringify(cart)); } catch {}
+  try {
+    localStorage.setItem(cartKey, JSON.stringify({ items: cart, returned: [...returnedOrders], titles: Object.fromEntries(returnedTitles) }));
+  } catch {}
 }
 
 function savePending(value) {
@@ -92,8 +101,13 @@ function savePending(value) {
 }
 
 function restoreCart(key) {
-  return Object.fromEntries(Object.entries(readLocal(key) ?? {}).filter(([id, quantity]) =>
-    /^[a-z0-9-]{1,64}$/.test(id) && Number.isInteger(quantity) && quantity > 0 && quantity <= 999));
+  const saved = readLocal(key);
+  const hasReturns = Array.isArray(saved?.returned);
+  returnedOrders = new Set(hasReturns ? saved.returned.filter(Number.isSafeInteger) : []);
+  returnedTitles = new Map(Object.entries(saved?.titles ?? {}).filter(([, title]) => typeof title === "string"));
+  const items = hasReturns ? saved.items : saved;
+  return Object.fromEntries(Object.entries(items ?? {}).filter(([id, quantity]) =>
+    /^[a-z0-9-]{1,64}$/.test(id) && Number.isSafeInteger(quantity) && quantity > 0 && (quantity <= 999 || returnedTitles.has(id))));
 }
 
 function photo(product) {
@@ -108,7 +122,7 @@ function productCard(product, { home = false, rank } = {}) {
   return `<button class="product-card${home ? " shelf-card" : ""}" type="button" data-product="${product.id}">
     <span class="product-media">
       ${photo(product)}
-      ${rank ? `<span class="product-rank">${rank}</span>` : ""}
+      ${rank ? `<span class="product-rank" data-rank="${rank}">${rank}</span>` : ""}
       ${badge ? `<span class="product-badge product-badge-${product.badge}">${badge}</span>` : ""}
     </span>
     <span class="product-copy">
@@ -158,7 +172,7 @@ function highlights() {
     emptyText = "Новинки появятся после обновления каталога.";
   }
   return items.length ? `<div class="product-row" tabindex="0" role="region" aria-label="Подборка товаров">
-    ${linesFor(items).slice(0, 12).map((product, index) => productCard(product, {
+    ${linesFor(items).slice(0, selected === "top" ? topProductLimit : 12).map((product, index) => productCard(product, {
       home: true, rank: selected === "top" ? index + 1 : undefined,
     })).join("")}
   </div>`
@@ -174,7 +188,6 @@ function home() {
     <div class="hero-copy">
       <p class="hero-brand"><img src="/assets/amiri-logo.svg" width="30" height="30" alt=""> AMIRI VAPE</p>
       <h1>Здравствуйте${name ? `, <span>${escapeHtml(name)}</span>` : ""}</h1>
-      <p class="hero-lead">Каталог, остатки и заказы AMIRI VAPE</p>
     </div>
   </section>
   <section class="home-collection" aria-label="Подборки товаров">
@@ -288,35 +301,62 @@ function shop() {
 function quantityControls(product, quantity) {
   const limit = Math.min(999, product.stock ?? 999);
   const locked = checkoutPending || pendingOrder;
-  return `<div class="stepper" role="group" aria-label="Количество">
+  return `<div class="stepper" data-quantity-item="${product.id}" role="group" aria-label="Количество">
     <button type="button" data-quantity="-1" data-item="${product.id}" aria-label="Убавить количество" ${quantity && !locked ? "" : "disabled"}>−</button>
     <output>${quantity}</output>
     <button type="button" data-quantity="1" data-item="${product.id}" aria-label="Увеличить количество" ${quantity >= limit || locked ? "disabled" : ""}>+</button>
   </div>`;
 }
 
+function cartLines() {
+  return Object.entries(cart).map(([id, quantity]) => {
+    const product = byId.get(id) || { id, title: returnedTitles.get(id), stock: 0 };
+    const available = product.price == null ? 0 : Math.min(999, product.stock);
+    return { product, quantity, available };
+  }).filter(({ product }) => product.title);
+}
+
+const cartTotal = lines => lines.reduce((total, { product, quantity, available }) =>
+  total + (quantity <= available ? quantity * product.price : 0), 0);
+
 function cartPage() {
-  const items = Object.entries(cart).filter(([id]) => byId.get(id)?.price != null);
+  const items = cartLines();
   if (!items.length && !pendingOrder) {
     return `<div class="narrow empty">${panelIcon("cart")}<h1>Корзина пока пустая</h1>
       ${checkoutError || storefrontError || cartNotice ? `<p role="status">${escapeHtml(checkoutError || storefrontError || cartNotice)}</p>` : ""}
       <a class="button" href="#shop">Перейти в каталог</a><a class="button ghost" href="#home">Новинки на главной</a></div>`;
   }
-  const total = items.reduce((sum, [id, quantity]) => sum + byId.get(id).price * quantity, 0);
-  const canSubmit = !checkoutPending && (pendingOrder || (storefrontLoaded && items.length));
   return `<div class="narrow">
-    <a class="crumbs" href="#shop">‹ В каталог</a><h1 class="heading">Корзина</h1><p class="subtitle">${cartQuantity()} шт.</p>
-    <div class="list">${items.map(([id, quantity]) => {
-      const product = byId.get(id);
+    <a class="crumbs" href="#shop">‹ В каталог</a><h1 class="heading">Корзина</h1><p class="subtitle" data-cart-quantity>${cartQuantity()} шт.</p>
+    <div class="list">${items.map(({ product, quantity, available }) => {
       const title = [product.line, product.title].filter(Boolean).join(" · ");
-      return `<article class="cart-item">${photo(product)}<div><b>${escapeHtml(title)}</b><p>${money(product.price * quantity)}</p></div>${quantityControls(product, quantity)}</article>`;
+      const status = cartLineStatus({ product, quantity, available });
+      const remove = !available && !checkoutPending && !pendingOrder
+        ? `<button type="button" class="button ghost" data-quantity="${-quantity}" data-item="${product.id}">Убрать</button>` : "";
+      return `<article class="cart-item" data-cart-item="${product.id}">${photo(product)}<div><b>${escapeHtml(title)}</b><p data-cart-line-status>${status}</p></div>
+        ${remove || quantityControls(product, quantity)}</article>`;
     }).join("")}</div>
-    <div class="cart-total"><b>Итого</b><b>${money(total)}</b></div>
+    <div data-cart-summary>${cartSummary(items)}</div>
+  </div>`;
+}
+
+function cartLineStatus({ product, quantity, available }) {
+  if (quantity <= available) return money(product.price * quantity);
+  return available ? `Доступно ${available} шт.` : `Сейчас недоступно · ${quantity} шт. в корзине`;
+}
+
+function cartSummary(items) {
+  const total = cartTotal(items);
+  const unavailable = items.some(({ quantity, available }) => quantity > available);
+  const canSubmit = !checkoutPending && (pendingOrder || (storefrontLoaded && !unavailable && total >= minimumOrderTotal));
+  return `<div class="cart-total"><b>Итого</b><b>${money(total)}</b></div>
+    ${!pendingOrder && unavailable ? '<p class="cart-demo">Уберите недоступные позиции или уменьшите количество до остатка.</p>' :
+      !pendingOrder && total < minimumOrderTotal ? `<p class="cart-demo">Минимальная сумма заказа — ${money(minimumOrderTotal)}. Добавьте ещё на ${money(minimumOrderTotal - total)}.</p>` : ""}
     ${serverUser ? `<div class="cart-checkout"><button class="button" type="button" data-checkout ${canSubmit ? "" : "disabled"}>
       ${checkoutPending ? "Оформляем…" : pendingOrder ? "Проверить оформление" : "Оформить заказ"}</button></div>
       <p class="cart-demo" role="status">${escapeHtml(checkoutError || storefrontError || cartNotice)}</p>`
       : '<a class="button" href="/login">Войти через Telegram</a>'}
-  </div>`;
+  `;
 }
 
 function orders() {
@@ -328,16 +368,35 @@ function orders() {
     return `<div class="narrow"><h1 class="heading">Мои заказы</h1>
       <button type="button" class="button ghost" data-refresh-store>Обновить</button>
       ${storefrontError ? `<p class="cart-demo" role="status">${escapeHtml(storefrontError)}</p>` : ""}
-      <div class="list">${ordersList.map(order => `<article class="admin-order order-customer">
-        <header><h3>Заказ №${order.id} · ${money(order.total)}</h3><span class="access">${orderLabels[order.state]}</span></header>
-        <ul>${order.items.map(item => `<li>${escapeHtml(item.title)} · ${item.quantity} шт. × ${money(item.price)}</li>`).join("")}</ul>
-        ${order.tracking ? `<p class="admin-order-info">Трек-номер: ${escapeHtml(order.tracking)}</p>` : ""}
-      </article>`).join("")}</div></div>`;
+      ${orderActionError ? `<p class="cart-demo" role="alert">${escapeHtml(orderActionError)}</p>` : ""}
+      <div class="list">${ordersList.map(customerOrderCard).join("")}</div></div>`;
   }
   return `<div class="narrow"><h1 class="heading">Мои заказы</h1><div class="empty">
     ${panelIcon("orders")}<h2>Заказов пока нет</h2>
     <p>Соберите первый заказ в каталоге — статус будет виден здесь</p><a class="button" href="#shop">В каталог</a>
   </div></div>`;
+}
+
+const secondsLeft = deadline => Math.max(0, Math.ceil((deadline - Date.now() - serverClockOffset) / 1000));
+const timeLeft = seconds => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+
+function customerOrderCard(order) {
+  const remaining = secondsLeft(order.editableUntil);
+  const state = order.state === "forming" && !remaining ? "new" : order.state;
+  return `<article class="admin-order order-customer">
+    <header><h3>Заказ №${order.id} · ${money(order.total)}</h3><span class="access">${orderLabels[state]}</span></header>
+    ${order.delivery ? `<p class="admin-order-info">Получатель: ${escapeHtml(order.delivery.fullName)}</p>
+      <p class="admin-order-info">СДЭК №${escapeHtml(order.delivery.pointNumber)} · ${escapeHtml(order.delivery.address)}</p>` : ""}
+    <ul>${order.items.map(item => `<li>${escapeHtml(item.title)} · ${item.quantity} шт. × ${money(item.price)}</li>`).join("")}</ul>
+    ${order.tracking ? `<p class="admin-order-info">Трек-номер: ${escapeHtml(order.tracking)}</p>` : ""}
+    ${order.state === "forming" && remaining ? `<div data-order-deadline="${order.editableUntil}">
+      <p class="admin-order-info">До автоматического подтверждения <span data-order-timer>${timeLeft(remaining)}</span></p>
+      <div class="order-actions">
+        <button type="button" class="button ghost" data-order-action="edit" data-order-id="${order.id}">Изменить</button>
+        <button type="button" class="button ghost" data-order-action="cancel" data-order-id="${order.id}">Отменить</button>
+        <button type="button" class="button" data-order-action="confirm" data-order-id="${order.id}">Подтвердить</button>
+      </div></div>` : ""}
+  </article>`;
 }
 
 function help() {
@@ -419,7 +478,7 @@ function updateNavigation(section) {
   cartCount.textContent = count;
   cartbar.hidden = !count || section === "cart";
   if (!cartbar.hidden) {
-    const total = Object.entries(cart).reduce((sum, [id, quantity]) => sum + (byId.get(id)?.price || 0) * quantity, 0);
+    const total = cartTotal(cartLines());
     cartbar.innerHTML = `<span>${icon("cart", 19)} Корзина · ${count} шт.</span><strong>${money(total)} ${icon("chevron", 16)}</strong>`;
   }
   const name = serverUser?.firstName || serverUser?.username || "Гость";
@@ -471,18 +530,84 @@ function searchProducts(query) {
   </button>`).join("") : '<p class="empty-selection">Ничего не нашли.</p>';
 }
 
-function changeQuantity(id, delta) {
+function flyToCart(source) {
+  if (!source || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  const image = source.closest(".cart-item, .product-card, .product-page")?.querySelector(".photo img:not([hidden])");
+  const target = [...document.querySelectorAll("[data-cart-target], .tabs [data-tab='cart']")]
+    .find(element => element.getBoundingClientRect().width > 0);
+  if (!image || !target || typeof image.animate !== "function") return;
+  const start = image.getBoundingClientRect();
+  const end = (target.querySelector("svg") || target).getBoundingClientRect();
+  if (!start.width || !start.height) return;
+  const size = Math.min(82, start.width, start.height);
+  const dx = end.left + end.width / 2 - start.left - start.width / 2;
+  const dy = end.top + end.height / 2 - start.top - start.height / 2;
+  const flight = image.cloneNode();
+  flight.className = "cart-flight";
+  flight.alt = "";
+  flight.setAttribute("aria-hidden", "true");
+  flight.removeAttribute("loading");
+  flight.style.width = flight.style.height = `${size}px`;
+  flight.style.left = `${start.left + (start.width - size) / 2}px`;
+  flight.style.top = `${start.top + (start.height - size) / 2}px`;
+  document.body.append(flight);
+  const animation = flight.animate([
+    { transform: "translate(0, 0) scale(1)", opacity: 1 },
+    { transform: `translate(${dx * 0.45}px, ${dy * 0.45 - 55}px) scale(.72)`, opacity: .95, offset: .45 },
+    { transform: `translate(${dx}px, ${dy}px) scale(.14)`, opacity: .2 },
+  ], { duration: 600, easing: "cubic-bezier(.25,.65,.35,1)", fill: "forwards" });
+  animation.finished.then(() => {
+    flight.remove();
+    if (target.isConnected) (target.querySelector("svg") || target).animate([
+      { transform: "scale(1)" }, { transform: "scale(1.2)", offset: .4 }, { transform: "scale(1)" },
+    ], { duration: 220, easing: "ease-out" });
+  }, () => flight.remove());
+}
+
+function updateQuantity(id) {
+  const quantity = cart[id] || 0;
   const product = byId.get(id);
-  if (product?.price == null || checkoutPending || pendingOrder) return;
+  const limit = Math.min(999, product?.stock ?? 999);
+  for (const controls of view.querySelectorAll(`[data-quantity-item="${id}"]`)) {
+    controls.querySelector("output").value = quantity;
+    controls.querySelector('[data-quantity="-1"]').disabled = quantity === 0;
+    controls.querySelector('[data-quantity="1"]').disabled = quantity >= limit;
+  }
+  const row = view.querySelector(`[data-cart-item="${id}"]`);
+  const items = cartLines();
+  if (row) {
+    if (!quantity) row.remove();
+    else row.querySelector("[data-cart-line-status]").textContent =
+      cartLineStatus(items.find(item => item.product.id === id));
+  }
+  const [section] = hashParts();
+  if (section === "cart") {
+    if (!items.length) return render({ scroll: false });
+    view.querySelector("[data-cart-quantity]").textContent = `${cartQuantity()} шт.`;
+    view.querySelector("[data-cart-summary]").innerHTML = cartSummary(items);
+  }
+  updateNavigation(section);
+}
+
+function changeQuantity(id, delta, source) {
+  const product = byId.get(id);
   const old = cart[id] || 0;
+  if (checkoutPending || pendingOrder || (delta > 0 && (product?.price == null || old >= product.stock))) return;
   const quantity = delta < 0 ? Math.max(0, old + delta) : Math.min(999, product.stock ?? 999, old + delta);
+  if (quantity === old) return;
+  if (quantity > old) flyToCart(source);
   if (quantity) cart[id] = quantity;
-  else delete cart[id];
+  else {
+    delete cart[id];
+    returnedTitles.delete(id);
+  }
   saveCart();
   savePending(null);
   checkoutError = "";
-  render({ scroll: false });
-  view.querySelector(`[data-item="${id}"][data-quantity="${delta}"]:not(:disabled)`)?.focus();
+  updateQuantity(id);
+  if (source?.disabled) {
+    view.querySelector(`[data-item="${id}"]:not(:disabled)`)?.focus();
+  }
 }
 
 async function loadStorefront() {
@@ -505,11 +630,23 @@ async function loadStorefront() {
       variantsByLine.get(key).push(product);
     }
     ordersList = result.orders;
+    serverClockOffset = result.serverTime - Date.now();
     storefrontError = "";
     storefrontLoaded = true;
     if (!pendingOrder) {
+      let returned = false;
+      for (const order of result.cartReturns ?? ordersList.filter(order => order.returnToCart)) {
+        if (returnedOrders.has(order.id)) continue;
+        for (const item of order.items) {
+          cart[item.id] = item.quantity + (cart[item.id] || 0);
+          returnedTitles.set(item.id, item.title);
+        }
+        returnedOrders.add(order.id);
+        returned = true;
+      }
       let changed = false;
       for (const [id, quantity] of Object.entries(cart)) {
+        if (returnedTitles.has(id)) continue;
         const product = byId.get(id);
         const available = product?.price == null ? 0 : Math.min(quantity, product.stock);
         if (available === quantity) continue;
@@ -517,8 +654,9 @@ async function loadStorefront() {
         if (available) cart[id] = available;
         else delete cart[id];
       }
-      if (changed) {
-        cartNotice = "Корзина обновлена с учётом текущих остатков и цен.";
+      if (changed || returned) {
+        cartNotice = returned ? "Товары из отменённых заказов возвращены в корзину."
+          : "Корзина обновлена с учётом текущих остатков и цен.";
         saveCart();
       }
     }
@@ -530,26 +668,151 @@ async function loadStorefront() {
 }
 
 async function refreshStorefront() {
+  const previousOrders = ordersList;
   if (!serverUser || !await loadStorefront()) return;
   render({ scroll: false });
   if (panel.open && panel.dataset.kind === "search") {
     panel.querySelector("#search-results").innerHTML = searchProducts(panel.querySelector("#query").value);
   }
+  if (hashParts()[0] !== "orders" || orderActionPending) return;
+  const confirmed = ordersList.find(order => order.state === "new" && previousOrders.some(previous =>
+    previous.id === order.id && previous.state === "forming" && previous.editableUntil === order.updatedAt));
+  if (!confirmed) return;
+  if (panel.open) {
+    const activeOrder = panel.querySelector("[data-deadline]")?.dataset;
+    if (Number(activeOrder?.orderId ?? activeOrder?.editOrder) !== confirmed.id) return;
+    panel.close();
+  }
+  showPurchaseCelebration();
 }
 
-async function checkout() {
+function showPurchaseCelebration() {
+  if (purchaseCelebration.open) return;
+  const pieces = "<span></span>".repeat(8);
+  for (const side of purchaseCelebration.querySelectorAll(".purchase-confetti")) side.innerHTML = pieces;
+  purchaseCelebration.showModal();
+}
+
+function deliveryInputs(delivery = {}) {
+  return `<label>Номер пункта СДЭК
+    <input name="pointNumber" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="6 цифр" value="${escapeHtml(delivery.pointNumber || "")}" required></label>
+    <label>Адрес пункта СДЭК
+    <input name="address" minlength="5" maxlength="250" value="${escapeHtml(delivery.address || "")}" required></label>
+    <label>ФИО получателя
+    <input name="fullName" autocomplete="name" maxlength="120" value="${escapeHtml(delivery.fullName || "")}" required></label>
+    <label class="order-age"><input name="ageConfirmed" type="checkbox" ${delivery.ageConfirmed ? "checked" : ""} required>
+    Я подтверждаю, что мне исполнилось 18 лет</label>`;
+}
+
+function readDelivery(form) {
+  const fields = form.elements;
+  return {
+    pointNumber: fields.pointNumber.value,
+    address: fields.address.value.trim(),
+    fullName: fields.fullName.value.trim(),
+    ageConfirmed: fields.ageConfirmed.checked,
+  };
+}
+
+function updateOrderForm(form) {
+  const delivery = readDelivery(form);
+  const quantities = [...form.querySelectorAll("[data-line-price]")];
+  const total = quantities.reduce((sum, input) => sum + Number(input.dataset.linePrice) * input.valueAsNumber, 0);
+  const summary = form.querySelector("[data-order-total]");
+  if (summary) summary.textContent = Number.isFinite(total) ? `Итого ${money(total)} · минимум ${money(minimumOrderTotal)}` : "Укажите количество каждой позиции.";
+  form.querySelector("[type=submit]").disabled = checkoutPending || orderActionPending || !form.matches(":valid") ||
+    delivery.address.length < 5 || !/^\p{L}[\p{L}\p{M}'’\-]*(?:\s+\p{L}[\p{L}\p{M}'’\-]*)+$/u.test(delivery.fullName) ||
+    Boolean(summary && (total < minimumOrderTotal || !secondsLeft(Number(form.dataset.deadline))));
+}
+
+function openCheckout() {
+  if (checkoutPending || !serverUser) return;
+  if (pendingOrder && checkoutDelivery) {
+    void checkout(checkoutDelivery);
+    return;
+  }
+  showPanel("Данные для доставки", `<form class="order-form" data-delivery-form>
+    ${deliveryInputs(checkoutDelivery)}
+    <p class="order-form-error" role="alert"></p>
+    <button type="submit" class="button" disabled>Оформить заказ</button>
+  </form>`);
+}
+
+function openCustomerOrderAction(order, action) {
+  if (!order || orderActionPending || !secondsLeft(order.editableUntil)) return;
+  orderActionError = "";
+  if (action === "confirm" || action === "cancel") {
+    const confirming = action === "confirm";
+    const title = confirming ? "Подтвердить заказ" : "Отменить заказ";
+    showPanel(`${title} №${order.id}?`, `<form class="order-form" data-order-choice="${action}" data-order-id="${order.id}" data-deadline="${order.editableUntil}">
+      ${confirming ? "<p>Вы уверены, что хотите подтвердить заказ? После подтверждения отменить его можно будет только через менеджера.</p>" : ""}
+      <p class="order-form-error" role="alert"></p>
+      <div class="order-actions">
+        <button type="button" class="button ghost" data-close>Назад</button>
+        <button type="submit" class="button">${title}</button>
+      </div></form>`);
+    return;
+  }
+  showPanel(`Изменить заказ №${order.id}`, `<form class="order-form" data-edit-order="${order.id}"
+      data-revision="${order.revision}" data-deadline="${order.editableUntil}">
+    ${order.items.map(item => `<label>${escapeHtml(item.title)} · ${money(item.price)}
+      <input type="number" name="${escapeHtml(item.id)}" data-line-price="${item.price}" min="0" max="999" step="1" value="${item.quantity}" required></label>`).join("")}
+    <p class="admin-order-info">Укажите 0, чтобы убрать позицию.</p>
+    <p data-order-total></p>
+    ${deliveryInputs(order.delivery)}
+    <p class="order-form-error" role="alert"></p>
+    <button type="submit" class="button" disabled>Сохранить изменения</button>
+  </form>`);
+  updateOrderForm(panel.querySelector("[data-edit-order]"));
+}
+
+async function changeCustomerOrder(body, form) {
+  if (orderActionPending) return;
+  orderActionPending = true;
+  orderActionError = "";
+  const submit = form?.querySelector("[type=submit]");
+  if (submit) submit.disabled = true;
+  try {
+    const response = await fetch("/api/orders/action", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: AbortSignal.timeout(10_000),
+    });
+    if (response.status === 401) return location.reload();
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error);
+    ordersList = ordersList.map(order => order.id === result.order.id ? result.order : order);
+    if (form && panel.contains(form)) panel.close();
+    if (body.action === "confirm") showPurchaseCelebration();
+  } catch (error) {
+    const message = error.message || "Не удалось обновить заказ.";
+    if (form) form.querySelector("[role=alert]").textContent = message;
+    else orderActionError = message;
+  } finally {
+    orderActionPending = false;
+    if (form?.dataset.editOrder) updateOrderForm(form);
+    else if (submit) submit.disabled = false;
+    render({ scroll: false });
+    void refreshStorefront();
+  }
+}
+
+async function checkout(delivery, form) {
   if (!serverUser || (!pendingOrder && !storefrontLoaded) || checkoutPending) return;
-  const items = Object.entries(cart).filter(([id]) => byId.get(id)?.price != null)
-    .map(([id, quantity]) => ({ id, quantity, price: byId.get(id).price }));
-  if (!pendingOrder && !items.length) return;
-  if (!pendingOrder) savePending({ key: crypto.randomUUID(), items });
+  if (!pendingOrder) {
+    const lines = cartLines();
+    if (lines.some(({ quantity, available }) => quantity > available) || cartTotal(lines) < minimumOrderTotal) return;
+    const items = lines.map(({ product, quantity }) => ({ id: product.id, quantity, price: product.price }));
+    savePending({ key: crypto.randomUUID(), items });
+  }
+  checkoutDelivery = delivery;
   checkoutPending = true;
   checkoutError = "";
+  if (form) updateOrderForm(form);
   render({ scroll: false });
   try {
     const response = await fetch("/api/orders", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(pendingOrder), signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({ ...pendingOrder, delivery }), signal: AbortSignal.timeout(10_000),
     });
     if (response.status === 401) return location.reload();
     const result = await response.json();
@@ -560,9 +823,12 @@ async function checkout() {
       return;
     }
     cart = {};
+    returnedTitles.clear();
     cartNotice = "";
     saveCart();
     savePending(null);
+    checkoutDelivery = undefined;
+    if (form && panel.contains(form)) panel.close();
     ordersList = [result.order, ...ordersList.filter(order => order.id !== result.order.id)];
     await loadStorefront();
     location.hash = "#orders";
@@ -570,6 +836,10 @@ async function checkout() {
     checkoutError = "Ответ от сервера не получен. Повторите проверку оформления.";
   } finally {
     checkoutPending = false;
+    if (form && panel.open && panel.contains(form)) {
+      form.querySelector("[role=alert]").textContent = checkoutError;
+      updateOrderForm(form);
+    }
     render({ scroll: false });
   }
 }
@@ -621,8 +891,9 @@ document.addEventListener("click", event => {
     if (panel.open) panel.close();
     location.hash = "product/" + data.product;
   }
-  if (data.quantity) changeQuantity(data.item, Number(data.quantity));
-  if ("checkout" in data) void checkout();
+  if (data.quantity) changeQuantity(data.item, Number(data.quantity), target);
+  if ("checkout" in data) openCheckout();
+  if (data.orderAction) openCustomerOrderAction(ordersList.find(order => order.id === Number(data.orderId)), data.orderAction);
   if ("refreshStore" in data) void refreshStorefront();
 });
 
@@ -630,13 +901,52 @@ panel.addEventListener("input", event => {
   if (event.target.id === "query") {
     panel.querySelector("#search-results").innerHTML = searchProducts(event.target.value);
   }
+  const form = event.target.closest("[data-delivery-form], [data-edit-order]");
+  if (form) updateOrderForm(form);
 });
+
+panel.addEventListener("submit", event => {
+  const form = event.target;
+  if (!form.matches("[data-delivery-form], [data-edit-order], [data-order-choice]")) return;
+  event.preventDefault();
+  if (form.querySelector("[type=submit]").disabled) return;
+  if (form.matches("[data-delivery-form]")) {
+    void checkout(readDelivery(form), form);
+  } else if (secondsLeft(Number(form.dataset.deadline))) {
+    if (form.dataset.orderChoice) {
+      void changeCustomerOrder({ id: Number(form.dataset.orderId), action: form.dataset.orderChoice }, form);
+    } else {
+      const items = [...form.querySelectorAll("[data-line-price]")].map(input => ({ id: input.name, quantity: input.valueAsNumber }));
+      void changeCustomerOrder({ id: Number(form.dataset.editOrder), action: "edit",
+        revision: Number(form.dataset.revision), items, delivery: readDelivery(form) }, form);
+    }
+  }
+});
+
+if (checkingSession) setInterval(() => {
+  let expired = false;
+  for (const controls of view.querySelectorAll("[data-order-deadline]")) {
+    const remaining = secondsLeft(Number(controls.dataset.orderDeadline));
+    controls.querySelector("[data-order-timer]").textContent = timeLeft(remaining);
+    if (!remaining) expired = true;
+  }
+  const form = panel.open ? panel.querySelector("[data-deadline]") : null;
+  if (form && !secondsLeft(Number(form.dataset.deadline))) {
+    form.querySelector("[type=submit]").disabled = true;
+    if (!orderActionPending) form.querySelector("[role=alert]").textContent = form.dataset.orderChoice === "confirm"
+      ? "Заказ подтверждён автоматически." : "Время для изменения или отмены заказа истекло.";
+  }
+  if (expired) {
+    render({ scroll: false });
+    void refreshStorefront();
+  }
+}, 500);
 
 window.addEventListener("hashchange", () => {
   if (panel.open) panel.close();
   render();
   const [section] = hashParts();
-  if (section === "orders" || section === "shop") void refreshStorefront();
+  if (section === "orders" || section === "shop" || section === "cart") void refreshStorefront();
 });
 render();
 

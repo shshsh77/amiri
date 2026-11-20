@@ -59,7 +59,8 @@
       status.textContent = "Telegram не сохранил сеанс. Попробуйте открыть магазин в мобильном или настольном приложении.";
       return;
     }
-    location.replace("/mini-app");
+    const cart = new URLSearchParams(location.search).get("cart") === "1";
+    location.replace(cart ? "/mini-app#cart" : "/mini-app");
   }
 
   void start().catch(() => {

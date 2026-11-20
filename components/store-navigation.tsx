@@ -64,6 +64,7 @@ function MobileNavigation({ route, count }: { route: string; count: number }) {
           <GlassTabBarItem
             key={route}
             value={route}
+            data-cart-target={route === "cart" ? "" : undefined}
             label={title}
             className="min-w-0 flex-1 px-0"
             aria-label={hasCount ? `${title}, товаров: ${count}` : undefined}

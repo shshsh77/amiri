@@ -33,5 +33,14 @@
   <main id="view"></main>
   <a id="cartbar" href="#cart" hidden></a>
   <dialog id="panel" aria-labelledby="panel-title"></dialog>
+  <dialog id="purchase-celebration" aria-labelledby="purchase-title" aria-describedby="purchase-thanks">
+    <div class="purchase-confetti" aria-hidden="true"></div>
+    <div class="purchase-confetti purchase-confetti-right" aria-hidden="true"></div>
+    <div class="purchase-message">
+      <h2 id="purchase-title">Поздравляем вас с покупкой!</h2>
+      <p id="purchase-thanks">Спасибо, что выбираете нас.</p>
+      <form method="dialog"><button class="button" autofocus>Готово</button></form>
+    </div>
+  </dialog>
 </body>
 </html>

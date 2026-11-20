@@ -29,6 +29,7 @@ export function createTelegramClient(botToken) {
       const status = result.error_code || response.status;
       throw Object.assign(new Error(`Telegram ${method}: ошибка ${status}`), {
         status,
+        details: result.description,
         retryAfter: result.parameters?.retry_after,
       });
     }
@@ -119,7 +120,7 @@ export async function pollTelegram({ callTelegram, handler, signal }) {
   while (!signal.aborted) {
     try {
       const updates = await callTelegram("getUpdates", {
-        offset, timeout: 28, allowed_updates: ["message", "callback_query"],
+        offset, timeout: 28, allowed_updates: ["message", "callback_query", "my_chat_member"],
       }, signal);
       for (const update of updates) {
         if (signal.aborted) return;
